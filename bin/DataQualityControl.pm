@@ -1,6 +1,5 @@
 package DataQualityControl;
 
-use 5.010001;
 use strict;
 use warnings;
 
@@ -12,7 +11,7 @@ our @ISA = qw(Exporter AutoLoader);
 # names by default without a very good reason. Use EXPORT_OK instead.
 # Do not simply export all your public functions/methods/constants.
 
-# This allows declaration	use Integer::Doubler ':all';
+# This allows declaration	use DataQualityControl ':all';
 # If you do not need this, moving things directly into @EXPORT or @EXPORT_OK
 # will save memory.
 our %EXPORT_TAGS = ( 'all' => [ qw(
@@ -29,112 +28,111 @@ our $VERSION = '0.01';
 
 sub CheckFq
 {
-	my $usage = "CheckFq(input.fq.gz)";
+	my $usage = "CheckFq('input.fq.gz',['thoroughly'])";
 
+	my $out_para;
 	my $file  = shift @_;
 	if($file=~/\.tar\..z.?$/) { $file = "tar -xf $file -O|"; } #gz bz2 xz
-	elsif($file=~/\.gz$/)  { $file = "gzip -dc $file|";  } 
-	elsif($file=~/\.zip$/) { $file = "unzip -p $file|";  }
-	elsif($file=~/\.7z$/)  { $file = "7za e -so $file|"; }
-	elsif($file=~/\.rar$/) { $file = "rar p -inul $file|"; }
+	elsif($file=~/\.gz$/)  	  { $file = "gzip -dc $file|";  } 
+	elsif($file=~/\.zip$/)    { $file = "unzip -p $file|";  }
+	elsif($file=~/\.7z$/)     { $file = "7za e -so $file|"; }
+	elsif($file=~/\.rar$/)    { $file = "rar p -inul $file|"; }
 
 	my $thoroughly = shift;
 	undef $thoroughly unless $thoroughly eq 'thoroughly';
 
-	my $phred;
-	my $i;
+	my $phred_score;
+	my $line_count;
 	my $internalBlank = 0;
 	my $evidence;
 
-	open(IN, "$file") || die "can't open file($file)\n$usage";
+	open(IN, "$file") || die "Error 0000: can't open file($file)\n$usage";
 	while(my $line = <IN>){
-    		$i++;
+    		$line_count++;
 		if ($line =~ /^\s+$/){
 			if ($internalBlank){
-				print 'badFastq';
-				die "Line$i: internal blank line is NOT allowed.\n";
+				return "Bad Fastq";
+				die "Line$line_count: internal blank line is NOT allowed.\n";
 			}
 			$internalBlank = 1;
 			next ;
 		}
 		if($line !~/^@/){
-			print 'badFastq';
-   	    		die "Line$i: Reads name not begin with @\n$line";
+			return "Bad Fastq";
+   	    		die "Line$line_count: Reads name not begin with @\n$line";
    		}
 
-		my $seq_len;
 		$line = <IN>;
-   		 $i++;
+		my $seq_len;
+   		$line_count++;
     		$line =~ s/\s+$//;
 		unless ($seq_len = length($line)){
-			print 'badFastq';
-   	    		die "Line$i: internal blank line is NOT allowed.\n";
+			return "Bad Fastq";
+   	    		die "Line$line_count: internal blank line is NOT allowed.\n";
    		}
 		if($line =~/[^ATGCN]/i){
-			print 'badFastq';
-   	    		die "Line$i:$line\nbase should be ATGCN\n";
+			return "Bad Fastq";
+   	    		die "Line$line_count:$line\nbase should be ACGTN\n";
    		}
 
 		$line = <IN>;
-    		$i++;
+    		$line_count++;
 		if($line !~/^\+/){
-			print 'badFastq';
-   	   		 die "Line$i: quality score title not begin with +\n$line";
+			return "Bad Fastq";
+   	   		die "Line$line_count: quality score title not begin with +\n$line";
    		}
 
 		$line = <IN>;
-    		$i++;
+    		$line_count++;
     		$line =~ s/\s+$//;
 		if($seq_len != length($line)){
-			print 'badFastq';
-   	   		 die "Line$i: quality score line is NOT as long as nucleotide line($seq_len bp):\n$line";
+			return "Bad Fastq";
+   	   		die "Line$line_count: quality score line is NOT as long as nucleotide line($seq_len bp):\n$line";
    		}
 
 		if(defined $thoroughly) {
 			if($line =~ /[^!-~]/){
-				print 'badFastq';
-				die "Line$i: quality score is beyond ASCII 33~126\n$$line";
+				return "Bad Fastq";
+				die "Line$line_count: quality score is beyond ASCII 33~126\n$$line";
         		}
-			 if($line =~ /[!-:]/){
-				if(! defined $phred){
-					$phred = 33;
-	                        	$evidence = "Line$i: $$line";
-        		        }elsif($phred == 64){
-                        		print 'badFastq';
-                        		die "Line$i: $$line quality score  line is based on phred33, conflicted with $evidence\n";
+			if($line =~ /[!-:]/){
+				if(! defined $phred_score){
+					$phred_score = 33;
+	                        	$evidence = "Line$line_count: $line";
+        		        }elsif($phred_score == 64){
+                        		return 'Bad Fastq';
+                        		die "Line$line_count: $line quality score line is based on phred33, conflicted with $evidence\n";
                 		}
         		}
 			if($line =~ /[a-h]/){
-				if(! defined $phred){
-                        		$phred = 64;
-                        		$evidence = "Line$i: $$line";
-                		}elsif($phred == 33){
-                        		print 'badFastq';
-                        		die "Line$i: $$line quality score  line is based on phred64, conflicted with $evidence\n";
+				if(! defined $phred_score){
+                        		$phred_score = 64;
+                        		$evidence = "Line$line_count: $$line";
+                		}elsif($phred_score == 33){
+                        		return 'Bad Fastq';
+                        		die "Line$line_count: $line quality score  line is based on phred64, conflicted with $evidence\n";
                 		}
         		}
-		}elsif(! defined $phred){
+		}elsif(! defined $phred_score){
 			if($line =~ /([!-:])/){
-				$phred = 33;		#warn "phred = 33 since '$1' in '$line'";
+				$phred_score = 33;		#warn "phred = 33 since '$1' in '$line'";
 			}elsif($line =~ /([a-h])/){ 
-				$phred = 64;		#warn "phred = 64 since '$1' in '$line'";
+				$phred_score = 64;		#warn "phred = 64 since '$1' in '$line'";
 		        }
 		}
 	}
 
 #output
-	if(! defined $phred){
-		print 'phred64';
+	if(! defined $phred_score){
+		return 'phred64';
 		warn "Can't make sure. guess as phred64.";
-	}elsif($phred == 33){
-		print 'phred33';
+	}elsif($phred_score == 33){
+		return 'phred33';
 	}else{
-		print 'phred64';
+		return 'phred64';
 	}
 
 }
-
-
 
 
 # Preloaded methods go here.
@@ -142,7 +140,7 @@ sub CheckFq
 1;
 __END__
 
-# Below is stub documentation for your module. You'd better edit it!
+# Below is stub documentation for your module. 
 
 =head1 NAME
 
